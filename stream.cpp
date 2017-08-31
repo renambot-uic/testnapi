@@ -1,20 +1,25 @@
 #include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
 
 // NAPI
 #include <node_api.h>
 
-
+// Keep a handle on some stuff
 typedef struct {
     napi_ref        _callback;
     napi_async_work _request;
 } carrier;
 
+// Global var keeping handle on callback and task
 carrier the_carrier;
 
 // number of iteration
 int num_frames;
 
-
+// Parse the argument as an object with fields: frames,  ...
+//
 napi_value initStream(napi_env env, napi_callback_info info) {
 
     napi_status status;
@@ -28,87 +33,61 @@ napi_value initStream(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
+    // Only one argument, an object
     if (argc != 1) {
         napi_throw_error(env, "error", "Should have only one parameter");
         return nullptr;
     }
 
-    // Get the oject keys of the parameter
-    napi_value keys;
-    status = napi_get_property_names(env, argv[0], &keys);
+    // Get the 'frames' field
+    napi_value field;
+    status = napi_create_string_utf8(env, "frames", -1, &field);
     if (status != napi_ok) {
-        napi_throw_error(env, "error", "napi_get_property_names");
+        napi_throw_error(env, "error", "napi_create_string_utf8");
         return nullptr;
     }
 
-    napi_value field, fieldvalue;
-    char fieldname[256];
-    char fieldstring[256];
-    long fieldint;
-    size_t fieldsize;
-    status = napi_get_element(env, keys, 0, &field);
-    if (status != napi_ok) {
-        napi_throw_error(env, "error", "napi_get_element");
-        return nullptr;
-    }
-
-    memset(fieldname, 0, 256);
-    status = napi_get_value_string_utf8(env, field, fieldname, 256, &fieldsize);
-    if (status != napi_ok) {
-        fprintf(stderr, "   error %d\n", status);
-        napi_throw_error(env, "error", "napi_get_value_string_utf8");
-        return nullptr;
-    }
-
+    // Get the property
+    napi_value fieldvalue;
     status = napi_get_property(env, argv[0], field, &fieldvalue);
     if (status != napi_ok) {
         napi_throw_error(env, "error", "napi_get_property");
         return nullptr;
     }
 
-    napi_valuetype result;
-    status = napi_typeof(env, fieldvalue, &result);
+    // Get the integer value
+    int32_t fieldint;
+    status = napi_get_value_int32(env, fieldvalue, &fieldint);
     if (status != napi_ok) {
-        napi_throw_error(env, "error", "napi_typeof");
+        napi_throw_error(env, "error", "napi_get_value_int32");
         return nullptr;
     }
 
-    status = napi_get_value_int64(env, fieldvalue, &fieldint);
-    if (status != napi_ok) {
-        napi_throw_error(env, "error", "napi_get_value_int64");
-        return nullptr;
-    }
-
-    if (!strcmp(fieldname, "frames")) {
-        num_frames = fieldint;
-        fprintf(stderr, ">> FRAMES %d\n", num_frames);
-    }
-
-
-    if (status != napi_ok) {
-        napi_throw_error(env, "error", "Invalid number was passed as argument");
-        return nullptr;
-    }
+    // Store the value in global variable
+    num_frames = fieldint;
+    fprintf(stderr, ">> FRAMES %d\n", num_frames);
 
     return nullptr;
 }
 
+// TASK
 void doStreaming(napi_env env, void* param) {
-    fprintf(stderr, "doStreaming\n");
-
     napi_status lstatus;
+
+    fprintf(stderr, "do streaming\n");
 
     // get the parameter of the task
     carrier* c = static_cast<carrier*>(param);
 
+    // Get the callback from the reference in global memory
     napi_value callback;
     lstatus = napi_get_reference_value(env, c->_callback, &callback);
     if (lstatus != napi_ok) {
-        fprintf(stderr, "Error1 %d\n", lstatus);
         napi_throw_error(env, "error", "napi_get_reference_value");
         return;
     }
 
+    // global object needed to call a function 
     napi_value global;
     lstatus = napi_get_global(env, &global);
     if (lstatus != napi_ok) {
@@ -120,58 +99,67 @@ void doStreaming(napi_env env, void* param) {
     int i = 0;
     while (i < num_frames) {
 
-#if 1
+        // do some work
+        sleep(1);
 
-        // // Prepare argument
+
+        // Prepare the return buffer
         napi_value myBuffer;
-        size_t msgsize = 44;
-        // void *data = (void*)malloc(msgsize);
-        void *ptr;
-        fprintf(stderr, "Before napi_create_buffer %ld\n", msgsize);
-        // lstatus = napi_create_buffer(env, msgsize, &ptr, &myBuffer);
-        // lstatus = napi_create_arraybuffer(env, msgsize, &ptr, &myBuffer);
-        lstatus = napi_create_external_buffer(env,
-                                 msgsize, ptr,
-                                 0, 0,
-                                 &myBuffer);
+        size_t msgsize = 44;  // some length
 
-        // lstatus = napi_ok;
-        fprintf(stderr, "After napi_create_buffer\n");
+        fprintf(stderr, "Before creating buffer %ld\n", msgsize);
+
+        // create some data
+        void *input_data = (void*)malloc(msgsize);
+        // put some values in
+        memset(input_data, 0, msgsize);
+
+        // Diffent ways to create a buffer
+
+#if 1
+        // create a buffer with a copy
+        void *result_data;
+
+        lstatus = napi_create_buffer_copy(env,msgsize, input_data, &result_data, &myBuffer);
+
         if (lstatus != napi_ok) {
-            napi_throw_error(env, "error", "napi_create_buffer");
+            napi_throw_error(env, "error", "napi_create_buffer_copy");
         }
+#else
+        lstatus = napi_create_external_buffer(env, msgsize, input_data,
+                    nullptr, nullptr,  // no handlers for now
+                    &myBuffer);
 
+        if (lstatus != napi_ok) {
+            napi_throw_error(env, "error", "napi_create_external_buffer");
+        }
+#endif
+
+        fprintf(stderr, "After creating buffer\n");
 
         // Trigger the callback
         napi_value result;
         fprintf(stderr, "Before call\n");
-        // lstatus = napi_call_function(env, global, callback, 1, &myBuffer, &result);
+
         napi_value ret[1];
-        ret[0] = myBuffer;
+        ret[0]  = myBuffer;
         lstatus = napi_call_function(env, global, callback, 1, ret, &result);
+        if (lstatus != napi_ok) {
+            napi_throw_error(env, "error", "napi_call_function");
+        }
 
-        // lstatus = napi_make_callback(env,
-        //     nullptr,
-        //     callback,
-        //     1,
-        //     ret,
-        //     &result);
+        fprintf(stderr, "After call\n");
 
-        // if (lstatus != napi_ok) {
-        //     napi_throw_error(env, "error", "napi_call_function");
-        // }
-#else
-        fprintf(stderr, "Going to sleep\n");
-        sleep(3);
-#endif
         i++;
     }
 }
 
+// When task is done
 void doneStreaming(napi_env env, napi_status status, void* data) {
-    fprintf(stderr, "doneStreaming %d\n", status == napi_ok);  
+    fprintf(stderr, "done streaming %d\n", status == napi_ok);  
 }
 
+// Set a callbak to call, called when we get data
 napi_value setHandler(napi_env env, napi_callback_info info) {
     napi_status status;
     size_t argc = 1;
@@ -188,7 +176,7 @@ napi_value setHandler(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    // first parameter is a callback
+    // first parameter is a callback, keep a reference to it
     napi_value cb = argv[0];
     napi_create_reference(env, cb, 1, &the_carrier._callback);
     return nullptr;
@@ -198,23 +186,30 @@ napi_value setHandler(napi_env env, napi_callback_info info) {
 napi_value startStream(napi_env env, napi_callback_info info) {
     napi_status status;
 
+// 
+// ASYNC OR NOT
+// 
+
 #if 1
-    status = napi_create_async_work(env,
-                doStreaming, doneStreaming,
+    // Create the task
+    status = napi_create_async_work(env, doStreaming, doneStreaming,
                 &the_carrier, &the_carrier._request);
-
-    fprintf(stderr, "Init carrier request %p\n", the_carrier._request);
-
     if (status != napi_ok) {
         napi_throw_error(env, "error", "napi_create_async_work");
     }
+
+    // Put the task in the queue
     status = napi_queue_async_work(env, the_carrier._request);
     if (status != napi_ok) {
         napi_throw_error(env, "error", "napi_queue_async_work");
     }
+
 #else
-    // the_carrier._request = 0;
-    // doStreaming(env, &the_carrier);
+
+    // Synchronous, blocking
+    the_carrier._request = 0;
+    doStreaming(env, &the_carrier);
+
 #endif
 
     return nullptr;

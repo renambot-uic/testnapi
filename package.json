@@ -2,7 +2,7 @@
   "name": "testnapi",
   "version": "1.0.0",
   "description": "a test module for the node.js N-API",
-  "main": "test.js",
+  "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "install": "node-gyp rebuild"

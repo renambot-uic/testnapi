@@ -1,13 +1,11 @@
-
-const nvstream = require('bindings')('nvstream');
-
-const params = {frames: 100};
-
+// load the module
+const nvstream = require('bindings')('stream');
 
 function dataHandler(data) {
-	console.log("Got data", typeof data, data.length);	
+	console.log("    JS> got data", typeof data, data.length);	
 }
 
+const params = {frames: 4};
 nvstream.initStream(params);
 
 nvstream.setHandler(dataHandler);
