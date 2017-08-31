@@ -1,0 +1,24 @@
+{
+  "name": "testnapi",
+  "version": "1.0.0",
+  "description": "a test module for the node.js N-API",
+  "main": "test.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "install": "node-gyp rebuild"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/renambot-uic/testnapi.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "gypfile": true,
+  "bugs": {
+    "url": "https://github.com/renambot-uic/testnapi/issues"
+  },
+  "homepage": "https://github.com/renambot-uic/testnapi#readme",
+  "dependencies": {
+    "bindings": "^1.3.0"
+  }
+}
