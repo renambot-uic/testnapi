@@ -10,13 +10,15 @@
 typedef struct {
     napi_ref        _callback;
     napi_async_work _request;
+
+    int    num_frames;
+    void  *data;
+    size_t data_length;
 } carrier;
 
 // Global var keeping handle on callback and task
 carrier the_carrier;
 
-// number of iteration
-int num_frames;
 
 // Parse the argument as an object with fields: frames,  ...
 //
@@ -64,20 +66,44 @@ napi_value initStream(napi_env env, napi_callback_info info) {
     }
 
     // Store the value in global variable
-    num_frames = fieldint;
-    fprintf(stderr, ">> FRAMES %d\n", num_frames);
+    the_carrier.num_frames = fieldint;
+    fprintf(stderr, ">> FRAMES %d\n", the_carrier.num_frames);
 
     return nullptr;
 }
 
 // TASK
 void doStreaming(napi_env env, void* param) {
-    napi_status lstatus;
 
     fprintf(stderr, "do streaming\n");
 
     // get the parameter of the task
     carrier* c = static_cast<carrier*>(param);
+
+
+    // do some work
+    usleep(100000);
+
+    size_t msgsize = 4*1024*1024;
+    // create some data
+    void *input_data = (void*)malloc(msgsize);
+    // put some values in
+    memset(input_data, 0, msgsize);
+
+
+    // Put the data in the data structure
+    c->data = input_data;
+    c->data_length = msgsize;
+}
+
+// When task is done
+void doneStreaming(napi_env env, napi_status status, void* data) {
+    fprintf(stderr, "done streaming %d\n", status == napi_ok);
+
+    napi_status lstatus;
+
+    // get the parameter of the task
+    carrier* c = static_cast<carrier*>(data);
 
     // Get the callback from the reference in global memory
     napi_value callback;
@@ -95,68 +121,63 @@ void doStreaming(napi_env env, void* param) {
         return;
     }
 
-    // Do the work
-    int i = 0;
-    while (i < num_frames) {
+    // Prepare the return buffer
+    napi_value myBuffer;
 
-        // do some work
-        sleep(1);
+    fprintf(stderr, "Before creating buffer %ld\n", c->data_length);
 
-
-        // Prepare the return buffer
-        napi_value myBuffer;
-        size_t msgsize = 44;  // some length
-
-        fprintf(stderr, "Before creating buffer %ld\n", msgsize);
-
-        // create some data
-        void *input_data = (void*)malloc(msgsize);
-        // put some values in
-        memset(input_data, 0, msgsize);
-
-        // Diffent ways to create a buffer
 
 #if 1
-        // create a buffer with a copy
-        void *result_data;
+    // create a buffer with a copy
+    void *result_data;
 
-        lstatus = napi_create_buffer_copy(env,msgsize, input_data, &result_data, &myBuffer);
+    lstatus = napi_create_buffer_copy(env, c->data_length, c->data, &result_data, &myBuffer);
 
-        if (lstatus != napi_ok) {
-            napi_throw_error(env, "error", "napi_create_buffer_copy");
-        }
+    if (lstatus != napi_ok) {
+        napi_throw_error(env, "error", "napi_create_buffer_copy");
+    }
+    free(c->data);
+
 #else
-        lstatus = napi_create_external_buffer(env, msgsize, input_data,
-                    nullptr, nullptr,  // no handlers for now
-                    &myBuffer);
+    lstatus = napi_create_external_buffer(env, msgsize, input_data,
+                nullptr, nullptr,  // no handlers for now
+                &myBuffer);
 
-        if (lstatus != napi_ok) {
-            napi_throw_error(env, "error", "napi_create_external_buffer");
-        }
+    if (lstatus != napi_ok) {
+        napi_throw_error(env, "error", "napi_create_external_buffer");
+    }
 #endif
 
-        fprintf(stderr, "After creating buffer\n");
+    fprintf(stderr, "After creating buffer\n");
 
-        // Trigger the callback
-        napi_value result;
-        fprintf(stderr, "Before call\n");
+    // Trigger the callback
+    napi_value result;
+    fprintf(stderr, "Before call\n");
 
-        napi_value ret[1];
-        ret[0]  = myBuffer;
-        lstatus = napi_call_function(env, global, callback, 1, ret, &result);
+    napi_value ret[1];
+    ret[0]  = myBuffer;
+    lstatus = napi_call_function(env, global, callback, 1, ret, &result);
+    if (lstatus != napi_ok) {
+        napi_throw_error(env, "error", "napi_call_function");
+    }
+
+    fprintf(stderr, "After call\n");
+
+    c->num_frames = c->num_frames - 1;
+    if (c->num_frames > 0) {
+        // Create the task
+        lstatus = napi_create_async_work(env, doStreaming, doneStreaming,
+                    c, &c->_request);
         if (lstatus != napi_ok) {
-            napi_throw_error(env, "error", "napi_call_function");
+            napi_throw_error(env, "error", "napi_create_async_work");
         }
 
-        fprintf(stderr, "After call\n");
-
-        i++;
+        // Put the task in the queue
+        lstatus = napi_queue_async_work(env, c->_request);
+        if (lstatus != napi_ok) {
+            napi_throw_error(env, "error", "napi_queue_async_work");
+        }
     }
-}
-
-// When task is done
-void doneStreaming(napi_env env, napi_status status, void* data) {
-    fprintf(stderr, "done streaming %d\n", status == napi_ok);  
 }
 
 // Set a callbak to call, called when we get data
@@ -186,11 +207,6 @@ napi_value setHandler(napi_env env, napi_callback_info info) {
 napi_value startStream(napi_env env, napi_callback_info info) {
     napi_status status;
 
-// 
-// ASYNC OR NOT
-// 
-
-#if 1
     // Create the task
     status = napi_create_async_work(env, doStreaming, doneStreaming,
                 &the_carrier, &the_carrier._request);
@@ -203,14 +219,6 @@ napi_value startStream(napi_env env, napi_callback_info info) {
     if (status != napi_ok) {
         napi_throw_error(env, "error", "napi_queue_async_work");
     }
-
-#else
-
-    // Synchronous, blocking
-    the_carrier._request = 0;
-    doStreaming(env, &the_carrier);
-
-#endif
 
     return nullptr;
 }
