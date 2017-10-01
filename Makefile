@@ -9,7 +9,7 @@ confdebug:
 	node-gyp configure --debug
 
 test: build
-	node --napi-modules test.js
+	node test.js
 
 clean:
 	node-gyp clean
