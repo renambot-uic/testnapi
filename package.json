@@ -19,6 +19,6 @@
   },
   "homepage": "https://github.com/renambot-uic/testnapi#readme",
   "dependencies": {
-    "bindings": "^1.3.0"
+    "bindings": "latest"
   }
 }

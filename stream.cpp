@@ -29,7 +29,7 @@ napi_value initStream(napi_env env, napi_callback_info info) {
     napi_value argv[1];
 
     // Parameters
-    status = napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);    
+    status = napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
     if (status != napi_ok) {
         napi_throw_error(env, "error", "Failed to parse arguments");
         return nullptr;
@@ -165,9 +165,13 @@ void doneStreaming(napi_env env, napi_status status, void* data) {
 
     c->num_frames = c->num_frames - 1;
     if (c->num_frames > 0) {
+        // async_resource_name
+        napi_value rsrc;
+        status = napi_create_string_utf8(env, "streaming", -1, &rsrc);
+
         // Create the task
-        lstatus = napi_create_async_work(env, doStreaming, doneStreaming,
-                    c, &c->_request);
+        lstatus = napi_create_async_work(env, 0, rsrc,
+            doStreaming, doneStreaming, c, &c->_request);
         if (lstatus != napi_ok) {
             napi_throw_error(env, "error", "napi_create_async_work");
         }
@@ -207,9 +211,13 @@ napi_value setHandler(napi_env env, napi_callback_info info) {
 napi_value startStream(napi_env env, napi_callback_info info) {
     napi_status status;
 
+    // async_resource_name
+    napi_value rsrc;
+    status = napi_create_string_utf8(env, "streaming", -1, &rsrc);
+
     // Create the task
-    status = napi_create_async_work(env, doStreaming, doneStreaming,
-                &the_carrier, &the_carrier._request);
+    status = napi_create_async_work(env, nullptr, rsrc,
+        doStreaming, doneStreaming, &the_carrier, &the_carrier._request);
     if (status != napi_ok) {
         napi_throw_error(env, "error", "napi_create_async_work");
     }
@@ -228,7 +236,7 @@ napi_value stopStream(napi_env env, napi_callback_info info) {
     return nullptr;
 }
 
-void Init(napi_env env, napi_value exports, napi_value module, void* priv) {
+napi_value Init(napi_env env, napi_value exports) {
     // Module initialization code goes here
     napi_property_descriptor descs[] = {
         { "initStream",  0, initStream,  0, 0, 0, napi_default, 0 },
@@ -240,7 +248,7 @@ void Init(napi_env env, napi_value exports, napi_value module, void* priv) {
     if (status != napi_ok) {
         napi_throw_error(env, "error", "Error napi_define_properties");
     }
+    return exports;
 }
-
 
 NAPI_MODULE(addon, Init)
